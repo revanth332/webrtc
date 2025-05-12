@@ -9,7 +9,7 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'https://lw38q7hc-5173.inc1.devtunnels.ms',
+    origin: 'http://172.17.15.208:5173',
     methods: ["GET", "POST"],
   },
 });

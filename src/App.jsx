@@ -4,16 +4,17 @@ import { io } from 'socket.io-client';
 function App() {
   const dataChannelRef = useRef(null);
   const peerConnectionRef = useRef(null);
-  const sdpValue = useRef(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isCaller, setIsCaller] = useState(false);
   const socketRef = useRef(null);
   const iceCandidateQueueRef = useRef([]);
   const remoteDescriptionSetRef = useRef(false);
+  const fileBufferRef = useRef(null);
+  const [uploadingStatus,setUploadingStatus] = useState(0);
 
   useEffect(() => {
-    const socket = io('https://lw38q7hc-3001.inc1.devtunnels.ms');
+    const socket = io('http://172.17.15.208:3001');
     socketRef.current = socket;
   
     const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
@@ -66,7 +67,24 @@ function App() {
     dataChannelRef.current = dataChannel;
 
     dataChannel.onmessage = (e) => {
-      setMessages((prev) => [...prev, { text: e.data, sender: 'remote' }]);
+      const data = e.data;
+        if(typeof data === 'string'){
+          if(data.includes("EOF")){
+            const blob  = new Blob(fileBufferRef.current);
+            const url = URL.createObjectURL(blob);
+            setMessages((prev) => [...prev, { text: "File received", sender: 'remote',url,name: data.split("EOF")[0] }]);
+            fileBufferRef.current = null;
+          }
+          else{
+            setMessages((prev) => [...prev, { text: data, sender: 'remote' }]);
+          }
+        }
+        else{
+          if(!fileBufferRef.current){
+            fileBufferRef.current = [];
+          }
+          fileBufferRef.current.push(data);
+        }
     };
     dataChannel.onopen = () => {
       alert("connection established")
@@ -92,7 +110,24 @@ function App() {
     peerConnectionRef.current.ondatachannel = (e) => {
       dataChannelRef.current = e.channel;
       dataChannelRef.current.onmessage = (e) => {
-        setMessages((prev) => [...prev, { text: e.data, sender: 'local' }]);
+        const data = e.data;
+        if(typeof data === 'string'){
+          if(data.includes("EOF")){
+            const blob  = new Blob(fileBufferRef.current);
+            const url = URL.createObjectURL(blob);
+            setMessages((prev) => [...prev, { text: "File received", sender: 'local',url,name: data.split("EOF")[0] }]);
+            fileBufferRef.current = null;
+          }
+          else{
+            setMessages((prev) => [...prev, { text: data, sender: 'local' }]);
+          }
+        }
+        else{
+          if(!fileBufferRef.current){
+            fileBufferRef.current = [];
+          }
+          fileBufferRef.current.push(data);
+        }
       };
       dataChannelRef.current.onopen = () => {
         alert("connection established")
@@ -135,6 +170,47 @@ function App() {
     window.location.reload();
   }
 
+  const sendFile = (file) => {
+    console.log(file);
+    setMessages((prev) => [...prev, { text: file.name+" is sent", sender: isCaller ? 'local' : 'remote' }]);
+    const reader = new FileReader();
+    let offset = 0;
+
+    const chunkSize = 16384; // 16KB
+
+    reader.onload = (event) => {
+      const data = event.target.result;
+      
+      const sendChunk = () => {
+        if(dataChannelRef.current.bufferedAmount > 16 * 1024 * 1024){
+          setTimeout(sendChunk,100);
+          return;
+        }
+        dataChannelRef.current.send(data);
+        offset += data.byteLength;
+  
+        if(offset < file.size){
+          readSlice(offset);
+        }
+        else{
+          setUploadingStatus(0);
+          dataChannelRef.current.send(file.name+"EOF");
+        }
+      }
+      
+      sendChunk();
+    }
+
+    const readSlice = (offset) => {
+      setUploadingStatus((offset/file.size)*100);
+      // console.log(((offset/file.size)*100).toFixed(2)+"%");
+      const slice = file.slice(offset,offset+chunkSize);
+      reader.readAsArrayBuffer(slice);
+    }
+
+    readSlice(offset);
+  }
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-slate-800 to-slate-900 text-white flex justify-center items-center p-4">
       <div className="w-full max-w-5xl h-full rounded-lg shadow-2xl flex overflow-hidden">
@@ -167,6 +243,8 @@ function App() {
                     </div>
                   </div>
                 }
+                {uploadingStatus > 0 && <div className='text-center text-sm'>{uploadingStatus.toFixed(2)}%</div>}
+                {message.url && <a download={message.name} href={message.url}>download</a>}
               </div>
 
             ))}
@@ -181,6 +259,11 @@ function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && hanldeSend()}
+            />
+            <input
+              type="file"
+              className="p-2 rounded-lg text-white border"
+              onChange={(e) => sendFile(e.target.files[0])}
             />
             <button
               className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg"
