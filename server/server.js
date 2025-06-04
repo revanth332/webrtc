@@ -9,7 +9,7 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://172.17.15.208:5173',
+    origin: 'https://webrtc-1-qf3j.onrender.com',
     methods: ["GET", "POST"],
   },
 });
