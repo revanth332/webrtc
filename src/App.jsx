@@ -14,7 +14,7 @@ function App() {
   const [uploadingStatus,setUploadingStatus] = useState(0);
 
   useEffect(() => {
-    const socket = io('http://172.17.15.208:3001');
+    const socket = io('https://webrtc-jjet.onrender.com');
     socketRef.current = socket;
   
     const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
