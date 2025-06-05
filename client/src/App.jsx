@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
+import { buildStyles, CircularProgressbar } from 'react-circular-progressbar';
+import 'react-circular-progressbar/dist/styles.css';
 const SERVER_URL = import.meta.env.VITE_SERVER_ORIGIN;
 
 function App() {
@@ -13,6 +15,7 @@ function App() {
   const remoteDescriptionSetRef = useRef(false);
   const fileBufferRef = useRef(null);
   const [uploadingStatus,setUploadingStatus] = useState(0);
+  const [sendingFileId,setSendingFileId] = useState(null);
 
   useEffect(() => {
     const socket = io(SERVER_URL || 'http://172.17.15.208:3001');
@@ -71,14 +74,15 @@ function App() {
     dataChannel.onmessage = (e) => {
       const data = e.data;
         if(typeof data === 'string'){
-          if(data.includes("EOF")){
+          const message = JSON.parse(data);
+          if(message.type === "file-eof"){
             const blob  = new Blob(fileBufferRef.current);
             const url = URL.createObjectURL(blob);
-            setMessages((prev) => [...prev, {type:"text", text: "File received", sender: 'remote',url,name: data.split("EOF")[0] }]);
+            setMessages((prev) => [...prev, {type:message.type, text: "File received", sender: 'remote',url,name: message.name }]);
             fileBufferRef.current = null;
           }
           else{
-            setMessages((prev) => [...prev, {type:"text", text: data, sender: 'remote' }]);
+            setMessages((prev) => [...prev, {type:message.type, text: message.text, sender: 'remote' }]);
           }
         }
         else{
@@ -115,14 +119,15 @@ function App() {
       dataChannelRef.current.onmessage = (e) => {
         const data = e.data;
         if(typeof data === 'string'){
-          if(data.includes("EOF")){
+          const message = JSON.parse(data);
+          if(message.type === "file-eof"){
             const blob  = new Blob(fileBufferRef.current);
             const url = URL.createObjectURL(blob);
-            setMessages((prev) => [...prev, {type:"text", text: "File received", sender: 'local',url,name: data.split("EOF")[0] }]);
+            setMessages((prev) => [...prev, {type:message.type, text: "File received", sender: 'local',url,name: message.name }]);
             fileBufferRef.current = null;
           }
           else{
-            setMessages((prev) => [...prev, {type:"text", text: data, sender: 'local' }]);
+            setMessages((prev) => [...prev, {type:message.type, text: message.text, sender: 'local' }]);
           }
         }
         else{
@@ -160,8 +165,12 @@ function App() {
 
   const hanldeSend = () => {
     if (input.trim() !== '') {
-      dataChannelRef.current.send(input);
-      setMessages((prev) => [...prev, { text: input, sender: isCaller ? 'local' : 'remote' }]);
+      const message = {
+        type:"text",
+        text:input
+      }
+      // dataChannelRef.current.send(JSON.stringify(message));
+      setMessages((prev) => [...prev, { type:"text",text: input, sender: isCaller ? 'local' : 'remote' }]);
       setInput('');
     }
   };
@@ -217,13 +226,14 @@ function App() {
   const sendFile = (file) => {
     if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
         console.error("Data channel is not open or not available.");
-        setMessages((prev) => [...prev, { text: `Error: Data channel not open for ${file.name}`, sender: 'system', error: true }]);
+        setMessages((prev) => [...prev, { type:"text",text: `Error: Data channel not open for ${file.name}`, sender: 'system', error: true }]);
         setUploadingStatus(0);
         return;
     }
 
     console.log("Attempting to send file:", file.name, "size:", file.size);
-    setMessages((prev) => [...prev, { text: `Sending ${file.name}...`, sender: isCaller ? 'local' : 'remote' }]);
+    setSendingFileId(file.name+messages.length)
+    setMessages((prev) => [...prev, { type:"file-send",fileName : file.name,text: `Sending ${file.name}...`, sender: isCaller ? 'local' : 'remote',fileId : file.name+prev.length }]);
 
     const reader = new FileReader();
     let offset = 0;
@@ -240,7 +250,7 @@ function App() {
 
     const sendMetadata = () => {
         const metadata = {
-            type: 'file-meta', // Custom message type
+            type: 'file-meta',
             name: file.name,
             size: file.size,
             fileType: file.type,
@@ -250,7 +260,7 @@ function App() {
             console.log("Sent file metadata for:", file.name);
         } catch (e) {
             console.error("Failed to send file metadata:", e);
-            setMessages((prev) => [...prev, { text: `Error sending metadata for ${file.name}`, sender: 'system', error: true }]);
+            setMessages((prev) => [...prev, { type:"text",text: `Error sending metadata for ${file.name}`, sender: 'system', error: true }]);
             setUploadingStatus(0);
             return false; // Indicate failure
         }
@@ -294,7 +304,7 @@ function App() {
                 // wasn't enough or something filled the buffer very quickly between the check and send().
                 // The 'bufferedamountlow' logic should eventually recover if it was temporary.
                 // For persistent errors, you might need to abort.
-                setMessages((prev) => [...prev, { text: `Error sending chunk for ${file.name}`, sender: 'system', error: true }]);
+                setMessages((prev) => [...prev, { type:"text",text: `Error sending chunk for ${file.name}`, sender: 'system', error: true }]);
                 setUploadingStatus(0); // Abort on send error
                 return;
             }
@@ -307,7 +317,7 @@ function App() {
             console.log("Finished sending all chunks for:", file.name);
             try {
                 dataChannelRef.current.send(JSON.stringify({ type: 'file-eof', name: file.name }));
-                 setMessages((prev) => [...prev, { text: `${file.name} sent successfully!`, sender: isCaller ? 'local' : 'remote' }]);
+                 setMessages((prev) => [...prev, { type:"text",text: `${file.name} sent successfully!`, sender: isCaller ? 'local' : 'remote' }]);
             } catch (e) {
                 console.error("Failed to send EOF:", e);
             }
@@ -327,7 +337,7 @@ function App() {
 
     reader.onerror = (error) => {
         console.error("FileReader error:", error);
-        setMessages((prev) => [...prev, { text: `Error reading ${file.name}`, sender: 'system', error: true }]);
+        setMessages((prev) => [...prev, { type:"text",text: `Error reading ${file.name}`, sender: 'system', error: true }]);
         setUploadingStatus(0);
     };
 
@@ -354,13 +364,28 @@ return (
           {messages.map((message, index) => (
             <div key={index} className="space-y-1">
               <div className={`flex ${message.sender === (isCaller ? 'local' : 'remote') ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-xs md:max-w-sm px-4 py-2 rounded-2xl shadow-md ${
-                  message.sender === (isCaller ? 'local' : 'remote') ? 'bg-purple-200 text-purple-900' : 'bg-gray-100 text-gray-800'
-                }`}>
-                  {message.text}
+                <div>
+                 {
+                  message.type === "file-send"
+                  ? <div className='h-[100px] w-[200px] bg-slate-200 mt-2 flex justify-center items-center rounded-xl'>
+                    {sendingFileId === message.fileId ? <div className='h-12 w-12'>
+                        <CircularProgressbar style={buildStyles({
+                          textSize:'20px'
+                        })} value={Number(uploadingStatus)} text={`${Number(uploadingStatus)}%`} />
+                        {message.fileName}
+                      </div>
+                      : message.fileName}
+                  </div>
+                  : <div className={`max-w-xs md:max-w-sm px-4 py-2 rounded-2xl shadow-md ${
+                        message.sender === (isCaller ? 'local' : 'remote') ? 'bg-purple-200 text-purple-900' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {message.text}
+                    </div>
+                 }
+        
                 </div>
               </div>
-              {uploadingStatus > 0 && <div className='text-center text-xs text-gray-600'>{uploadingStatus.toFixed(2)}%</div>}
+              {/* <div className='text-center text-xs text-gray-600'>{uploadingStatus.toFixed(2)}%</div> */}
               {message.url && (
                 <div className="text-center">
                   <a
