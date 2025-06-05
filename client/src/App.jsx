@@ -169,7 +169,7 @@ function App() {
         type:"text",
         text:input
       }
-      // dataChannelRef.current.send(JSON.stringify(message));
+      dataChannelRef.current.send(JSON.stringify(message));
       setMessages((prev) => [...prev, { type:"text",text: input, sender: isCaller ? 'local' : 'remote' }]);
       setInput('');
     }
@@ -251,7 +251,7 @@ function App() {
     const sendMetadata = () => {
         const metadata = {
             type: 'file-meta',
-            name: file.name,
+            text: file.name,
             size: file.size,
             fileType: file.type,
         };
@@ -368,35 +368,34 @@ return (
                  {
                   message.type === "file-send"
                   ? <div className='h-[100px] w-[200px] bg-slate-200 mt-2 flex justify-center items-center rounded-xl'>
-                    {sendingFileId === message.fileId ? <div className='h-12 w-12'>
+                    {sendingFileId === message.fileId && uploadingStatus ? <div className='h-12 w-12'>
                         <CircularProgressbar style={buildStyles({
                           textSize:'20px'
-                        })} value={Number(uploadingStatus)} text={`${Number(uploadingStatus)}%`} />
-                        {message.fileName}
+                        })} value={Number(uploadingStatus)} text={`${Number(uploadingStatus.toFixed(1))}%`} />
+                        {message.fileName.length > 6 ? message.fileName.substring(0,20)+"..." : message.fileName}
                       </div>
-                      : message.fileName}
+                      : message.fileName.length > 6 ? message.fileName.substring(0,20)+"..." : message.fileName}
                   </div>
                   : <div className={`max-w-xs md:max-w-sm px-4 py-2 rounded-2xl shadow-md ${
                         message.sender === (isCaller ? 'local' : 'remote') ? 'bg-purple-200 text-purple-900' : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {message.text}
+                        {message.text} 
+                {message.url && (
+                  <div>
+                    <a
+                      className="text-blue-500 hover:underline text-sm"
+                      download={message.name}
+                      href={message.url}
+                    >
+                      Download {message.name}
+                    </a>
+                  </div>
+                )}
                     </div>
                  }
         
                 </div>
               </div>
-              {/* <div className='text-center text-xs text-gray-600'>{uploadingStatus.toFixed(2)}%</div> */}
-              {message.url && (
-                <div className="text-center">
-                  <a
-                    className="text-blue-500 hover:underline text-sm"
-                    download={message.name}
-                    href={message.url}
-                  >
-                    Download {message.name}
-                  </a>
-                </div>
-              )}
             </div>
           ))}
         </div>
